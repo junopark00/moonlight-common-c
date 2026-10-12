@@ -83,6 +83,12 @@ typedef struct _QUEUED_ASYNC_CALLBACK {
             uint8_t left[DS_EFFECT_PAYLOAD_SIZE];
             uint8_t right[DS_EFFECT_PAYLOAD_SIZE];
         } dsAdaptiveTrigger;
+        struct {
+            uint16_t packetType;
+            uint32_t length;
+            // The payload bytes are stored directly after the QUEUED_ASYNC_CALLBACK
+            // (see queueAsyncCallback()), so the entry is freed as one allocation.
+        } cursorPacket;
     } data;
     LINKED_BLOCKING_QUEUE_ENTRY entry;
 } QUEUED_ASYNC_CALLBACK, *PQUEUED_ASYNC_CALLBACK;
@@ -140,6 +146,8 @@ static PPLT_CRYPTO_CONTEXT decryptionCtx;
 #define IDX_SET_MOTION_EVENT 10
 #define IDX_SET_RGB_LED 11
 #define IDX_DS_ADAPTIVE_TRIGGERS 12
+#define IDX_CURSOR_SHAPE 13
+#define IDX_CURSOR_STATE 14
 
 #define CONTROL_STREAM_TIMEOUT_SEC 10
 #define CONTROL_STREAM_LINGER_TIMEOUT_SEC 2
@@ -157,6 +165,9 @@ static const short packetTypesGen3[] = {
     -1,     // Rumble triggers (unused)
     -1,     // Set motion event (unused)
     -1,     // Set RGB LED (unused)
+    -1,     // Set Adaptive Triggers (unused)
+    -1,     // Cursor shape (unused)
+    -1,     // Cursor state (unused)
 };
 static const short packetTypesGen4[] = {
     0x0606, // Request IDR frame
@@ -171,6 +182,9 @@ static const short packetTypesGen4[] = {
     -1,     // Rumble triggers (unused)
     -1,     // Set motion event (unused)
     -1,     // Set RGB LED (unused)
+    -1,     // Set Adaptive Triggers (unused)
+    -1,     // Cursor shape (unused)
+    -1,     // Cursor state (unused)
 };
 static const short packetTypesGen5[] = {
     0x0305, // Start A
@@ -185,6 +199,9 @@ static const short packetTypesGen5[] = {
     -1,     // Rumble triggers (unused)
     -1,     // Set motion event (unused)
     -1,     // Set RGB LED (unused)
+    -1,     // Set Adaptive Triggers (unused)
+    -1,     // Cursor shape (unused)
+    -1,     // Cursor state (unused)
 };
 static const short packetTypesGen7[] = {
     0x0305, // Start A
@@ -199,6 +216,9 @@ static const short packetTypesGen7[] = {
     -1,     // Rumble triggers (unused)
     -1,     // Set motion event (unused)
     -1,     // Set RGB LED (unused)
+    -1,     // Set Adaptive Triggers (unused)
+    -1,     // Cursor shape (unused)
+    -1,     // Cursor state (unused)
 };
 static const short packetTypesGen7Enc[] = {
     0x0302, // Request IDR frame
@@ -214,6 +234,8 @@ static const short packetTypesGen7Enc[] = {
     0x5501, // Set motion event (Sunshine protocol extension)
     0x5502, // Set RGB LED (Sunshine protocol extension)
     0x5503, // Set Adaptive Triggers (Sunshine protocol extension)
+    0x3100, // Cursor shape (Shell protocol extension)
+    0x3101, // Cursor state (Shell protocol extension)
 };
 
 static const char requestIdrFrameGen3[] = { 0, 0 };
@@ -1010,6 +1032,14 @@ static void asyncCallbackThreadFunc(void* context) {
                                                   queuedCb->data.dsAdaptiveTrigger.left,
                                                   queuedCb->data.dsAdaptiveTrigger.right);
             break;
+        case IDX_CURSOR_SHAPE:
+        case IDX_CURSOR_STATE:
+            // A state message may refer to the shape sent just before it, so these are
+            // delivered one by one in the order they arrived
+            ListenerCallbacks.cursorPacket(queuedCb->data.cursorPacket.packetType,
+                                           (const uint8_t*)(queuedCb + 1),
+                                           queuedCb->data.cursorPacket.length);
+            break;
         default:
             // Unhandled packet type from queueAsyncCallback()
             LC_ASSERT(false);
@@ -1026,7 +1056,9 @@ static bool needsAsyncCallback(unsigned short packetType) {
            packetType == packetTypes[IDX_SET_MOTION_EVENT] ||
            packetType == packetTypes[IDX_SET_RGB_LED] ||
            packetType == packetTypes[IDX_HDR_INFO] ||
-           packetType == packetTypes[IDX_DS_ADAPTIVE_TRIGGERS];
+           packetType == packetTypes[IDX_DS_ADAPTIVE_TRIGGERS] ||
+           packetType == packetTypes[IDX_CURSOR_SHAPE] ||
+           packetType == packetTypes[IDX_CURSOR_STATE];
 }
 
 static void queueAsyncCallback(PNVCTL_ENET_PACKET_HEADER_V1 ctlHdr, int packetLength) {
@@ -1036,7 +1068,13 @@ static void queueAsyncCallback(PNVCTL_ENET_PACKET_HEADER_V1 ctlHdr, int packetLe
 
     LC_ASSERT(needsAsyncCallback(ctlHdr->type));
 
-    queuedCb = malloc(sizeof(*queuedCb));
+    // Cursor packets carry a variable-length payload that is copied behind the queue entry
+    size_t payloadLength = 0;
+    if (ctlHdr->type == packetTypes[IDX_CURSOR_SHAPE] || ctlHdr->type == packetTypes[IDX_CURSOR_STATE]) {
+        payloadLength = packetLength - sizeof(*ctlHdr);
+    }
+
+    queuedCb = malloc(sizeof(*queuedCb) + payloadLength);
     if (!queuedCb) {
         return;
     }
@@ -1086,6 +1124,12 @@ static void queueAsyncCallback(PNVCTL_ENET_PACKET_HEADER_V1 ctlHdr, int packetLe
         BbGetBytes(&bb, queuedCb->data.dsAdaptiveTrigger.left, DS_EFFECT_PAYLOAD_SIZE);
         BbGetBytes(&bb, queuedCb->data.dsAdaptiveTrigger.right, DS_EFFECT_PAYLOAD_SIZE);
         queuedCb->typeIndex = IDX_DS_ADAPTIVE_TRIGGERS;
+    }
+    else if (ctlHdr->type == packetTypes[IDX_CURSOR_SHAPE] || ctlHdr->type == packetTypes[IDX_CURSOR_STATE]) {
+        queuedCb->data.cursorPacket.packetType = ctlHdr->type;
+        queuedCb->data.cursorPacket.length = (uint32_t)payloadLength;
+        memcpy(queuedCb + 1, ctlHdr + 1, payloadLength);
+        queuedCb->typeIndex = (ctlHdr->type == packetTypes[IDX_CURSOR_SHAPE]) ? IDX_CURSOR_SHAPE : IDX_CURSOR_STATE;
     }
     else {
         // Unhandled packet type from needsAsyncCallback()

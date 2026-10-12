@@ -483,6 +483,18 @@ typedef void(*ConnListenerSetAdaptiveTriggers)(uint16_t controllerNumber, uint8_
 // This callback is invoked to set a controller's RGB LED (if present).
 typedef void(*ConnListenerSetControllerLED)(uint16_t controllerNumber, uint8_t r, uint8_t g, uint8_t b);
 
+// This callback is invoked when the host sends a cursor message (a protocol extension used by
+// Shell hosts): CURSOR_PACKET_TYPE_SHAPE carries the image, hotspot and visibility of the host's
+// mouse cursor and CURSOR_PACKET_TYPE_STATE a change of visibility or a switch to a shape sent
+// earlier, so the client can draw the cursor itself instead of seeing it rendered into the video.
+// payload points to the bytes that follow the control packet header and is only valid during the
+// callback; length is their count. The library does not interpret the payload. Hosts only send
+// these messages to clients that asked for them (outside this library), and a client that leaves
+// this callback NULL drops them, so hosts and clients without the extension are unaffected.
+#define CURSOR_PACKET_TYPE_SHAPE 0x3100
+#define CURSOR_PACKET_TYPE_STATE 0x3101
+typedef void(*ConnListenerCursorPacket)(uint16_t packetType, const uint8_t* payload, uint32_t length);
+
 typedef struct _CONNECTION_LISTENER_CALLBACKS {
     ConnListenerStageStarting stageStarting;
     ConnListenerStageComplete stageComplete;
@@ -497,6 +509,7 @@ typedef struct _CONNECTION_LISTENER_CALLBACKS {
     ConnListenerSetMotionEventState setMotionEventState;
     ConnListenerSetControllerLED setControllerLED;
     ConnListenerSetAdaptiveTriggers setAdaptiveTriggers;
+    ConnListenerCursorPacket cursorPacket;
 } CONNECTION_LISTENER_CALLBACKS, *PCONNECTION_LISTENER_CALLBACKS;
 
 // Use this function to zero the connection callbacks when allocated on the stack or heap
