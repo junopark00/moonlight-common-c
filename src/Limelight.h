@@ -484,8 +484,8 @@ typedef void(*ConnListenerSetAdaptiveTriggers)(uint16_t controllerNumber, uint8_
 typedef void(*ConnListenerSetControllerLED)(uint16_t controllerNumber, uint8_t r, uint8_t g, uint8_t b);
 
 // This callback is invoked when the host sends a cursor message (a protocol extension used by
-// Shell hosts): CURSOR_PACKET_TYPE_SHAPE carries the image, hotspot and visibility of the host's
-// mouse cursor and CURSOR_PACKET_TYPE_STATE a change of visibility or a switch to a shape sent
+// Shell hosts): CURSOR_PACKET_TYPE_SHAPE carries the image and hotspot of the host's mouse
+// cursor and CURSOR_PACKET_TYPE_STATE a change of visibility or a switch to a shape sent
 // earlier, so the client can draw the cursor itself instead of seeing it rendered into the video.
 // payload points to the bytes that follow the control packet header and is only valid during the
 // callback; length is their count. The library does not interpret the payload. Hosts only send
