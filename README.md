@@ -18,7 +18,7 @@ control channel:
 
 | Type | Name | Content |
 |---|---|---|
-| `0x3100` | `CURSOR_SHAPE` | the host cursor's image (BGRA, straight alpha), hotspot and visibility |
+| `0x3100` | `CURSOR_SHAPE` | the host cursor's image (BGRA, straight alpha) and hotspot |
 | `0x3101` | `CURSOR_STATE` | a visibility change, or a switch to a shape sent earlier |
 
 The library does not interpret these payloads. Both are dispatched through the existing asynchronous
