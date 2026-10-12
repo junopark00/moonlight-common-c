@@ -109,6 +109,7 @@ static uint32_t lastSeenFrame;
 static bool stopping;
 static bool disconnectPending;
 static bool encryptedControlStream;
+static bool asyncCallbackQueueFullLogged;
 static bool hdrEnabled;
 static SS_HDR_METADATA hdrMetadata;
 
@@ -325,7 +326,10 @@ int initializeControlStream(void) {
     PltCreateEvent(&idrFrameRequiredEvent);
     LbqInitializeLinkedBlockingQueue(&referenceFrameControlQueue, 20);
     LbqInitializeLinkedBlockingQueue(&frameFecStatusQueue, 8); // Limits number of frame status reports per periodic ping interval
-    LbqInitializeLinkedBlockingQueue(&asyncCallbackQueue, 30);
+    // Cursor shapes (up to 5 chunks each, 20 per second) and cursor states (60 per second) can
+    // arrive in bursts on top of the gamepad messages, so the bound is larger than upstream's 30
+    LbqInitializeLinkedBlockingQueue(&asyncCallbackQueue, 256);
+    asyncCallbackQueueFullLogged = false;
     PltCreateMutex(&enetMutex);
 
     encryptedControlStream = APP_VERSION_AT_LEAST(7, 1, 431);
@@ -1139,7 +1143,15 @@ static void queueAsyncCallback(PNVCTL_ENET_PACKET_HEADER_V1 ctlHdr, int packetLe
     }
 
     err = LbqOfferQueueItem(&asyncCallbackQueue, queuedCb, &queuedCb->entry);
-    if (err != LBQ_SUCCESS) {
+    if (err == LBQ_BOUND_EXCEEDED) {
+        // Said once per connection: the client is not keeping up with the host's messages
+        if (!asyncCallbackQueueFullLogged) {
+            asyncCallbackQueueFullLogged = true;
+            Limelog("Async callback queue full; dropping packet type %04x (further drops are not logged)\n", ctlHdr->type);
+        }
+        free(queuedCb);
+    }
+    else if (err != LBQ_SUCCESS) {
         Limelog("Failed to queue async callback: %d\n", err);
         free(queuedCb);
     }

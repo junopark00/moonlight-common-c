@@ -29,3 +29,7 @@ stock moonlight-common-c drops every unknown type), and hosts without the extens
 them, so nothing changes for stock clients and hosts. The type numbers do not overlap the Sunshine
 (`0x55xx`) or Apollo (`0x30xx`) extensions. The payload layouts are documented with the Shell host
 (`docs/` in the Shell repository).
+
+Because cursor shapes (up to five chunks each, 20 per second) and cursor states (60 per second) can
+arrive in bursts, the asynchronous callback queue holds 256 entries in this fork instead of 30, and a
+full queue is logged once per connection (the first dropped packet type) instead of on every drop.
